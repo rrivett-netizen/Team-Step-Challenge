@@ -1,0 +1,8 @@
+# Step Tracking Bot Requirements
+# Python 3.8 or higher required
+
+# Web App Dependencies
+streamlit>=1.28.0
+plotly>=5.17.0
+pandas>=2.0.0
+
