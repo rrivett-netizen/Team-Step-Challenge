@@ -406,6 +406,48 @@ def main_app():
             st.metric("Goals Met", f"{goals_met}/{total_days}")
         else:
             st.info("Start logging steps to see your stats!")
+        
+        # Admin Panel
+        st.markdown("---")
+        st.markdown("### 🔧 Admin Panel")
+        
+        with st.expander("⚠️ Manage Users"):
+            all_users = db.get_all_usernames()
+            
+            if all_users:
+                st.markdown(f"**Total Users:** {len(all_users)}")
+                
+                # Delete specific user
+                st.markdown("#### Remove Specific User")
+                user_to_delete = st.selectbox("Select user to remove:", all_users, key="delete_user_select")
+                
+                if st.button("🗑️ Remove This User", key="delete_single"):
+                    if user_to_delete in db.data["users"]:
+                        del db.data["users"][user_to_delete]
+                        db.save_data()
+                        st.success(f"✅ Removed {user_to_delete}")
+                        if user_to_delete == username:
+                            st.session_state.username = None
+                        st.rerun()
+                
+                # Clear all users
+                st.markdown("---")
+                st.markdown("#### Clear All Users")
+                st.warning("⚠️ This will delete ALL users and their data!")
+                
+                confirm_clear = st.text_input("Type 'DELETE ALL' to confirm:", key="confirm_clear")
+                
+                if st.button("🗑️ Clear All Users", key="clear_all", type="secondary"):
+                    if confirm_clear == "DELETE ALL":
+                        db.data["users"] = {}
+                        db.save_data()
+                        st.success("✅ All users cleared!")
+                        st.session_state.username = None
+                        st.rerun()
+                    else:
+                        st.error("Please type 'DELETE ALL' to confirm")
+            else:
+                st.info("No users to manage")
     
     # Main content
     st.title("👟 Team Step Tracker")
@@ -761,4 +803,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
