@@ -1,0 +1,16 @@
+:root{--card:#fff;--bg:#f3f6fb;--accent:#2b8cff}
+*{box-sizing:border-box;font-family:system-ui,Segoe UI,Roboto,Arial}
+body{background:var(--bg);margin:0;padding:24px}
+.container{max-width:760px;margin:0 auto}
+.card{background:var(--card);padding:16px;margin:12px 0;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+label{display:block;margin:8px 0}
+input{padding:8px;width:100%;max-width:320px;margin-top:6px}
+button{background:var(--accent);color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+#progressWrap{display:flex;align-items:center;gap:12px}
+#progressBar{flex:1;height:18px;background:#e6eefc;border-radius:10px;overflow:hidden}
+#progressFill{height:100%;width:0;background:linear-gradient(90deg,var(--accent),#0b63d6)}
+#percent{min-width:48px;text-align:right}
+.actions{margin-top:8px;display:flex;gap:8px}
+#summary{margin-top:12px}
+table{width:100%;border-collapse:collapse}
+td,th{padding:6px;border-bottom:1px solid #eee;text-align:left}

@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Step Tracker (Public)</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <h1>Step Tracker</h1>
+
+    <section class="card">
+      <h2>Team Members</h2>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="addMember">Add current name as member</button>
+        <button id="removeMember">Remove selected member</button>
+        <button id="useMember">Use selected member</button>
+      </div>
+      <label style="margin-top:8px;display:block">Members
+        <select id="membersList" size="4" style="width:100%;max-width:360px;margin-top:6px"></select>
+      </label>
+    </section>
+
+    <section class="card">
+      <h2>Profile, Goal & Challenge</h2>
+      <label>Name <input id="user" placeholder="Your name" /></label>
+
+      <label>Challenge
+        <select id="challengeSelect"></select>
+      </label>
+
+      <label>Weekly Goal <input id="goal" type="number" min="0" /></label>
+
+      <div style="margin-top:8px">
+        <label style="display:block">Auto-rotate challenges
+          <input id="autoRotate" type="checkbox" /> enable
+        </label>
+        <label>Rotation start <input id="rotationStart" type="date" /></label>
+        <label>Days per challenge <input id="daysPerChallenge" type="number" min="1" value="7" /></label>
+      </div>
+
+      <div style="margin-top:8px;display:flex;gap:8px">
+        <button id="saveProfile">Save</button>
+        <button id="saveRotation">Save rotation settings</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Add Today's Entry</h2>
+      <label>Date <input id="date" type="date" /></label>
+      <label>Amount <input id="steps" type="number" min="0" /></label>
+      <label>Notes <input id="notes" /></label>
+      <button id="addStep">Add</button>
+    </section>
+
+    <section class="card">
+      <h2>Weekly Summary</h2>
+      <div id="progressWrap">
+        <div id="progressBar"><div id="progressFill"></div></div>
+        <div id="percent">0%</div>
+      </div>
+      <div id="summary"></div>
+      <div class="actions">
+        <button id="exportCsv">Export CSV</button>
+        <button id="resetData">Reset Data</button>
+      </div>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
