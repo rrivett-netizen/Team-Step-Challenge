@@ -22,10 +22,27 @@ class StepTrackerDB:
     
     def load_data(self) -> Dict:
         """Load data from JSON file"""
+        default = {
+            "users": {},
+            "challenge": {
+                "active": False,
+                "team_goal": 0,
+                "start_date": None,
+                "end_date": None
+            },
+            "weekly_goal": {"goal": 0, "week_start": None},
+            "admin_message": ""
+        }
         if os.path.exists(self.data_file):
-            with open(self.data_file, 'r') as f:
-                return json.load(f)
-        return {"users": {}}
+            data = json.load(open(self.data_file, 'r'))
+            if "challenge" not in data:
+                data["challenge"] = default["challenge"]
+            if "weekly_goal" not in data:
+                data["weekly_goal"] = default["weekly_goal"]
+            if "admin_message" not in data:
+                data["admin_message"] = default["admin_message"]
+            return data
+        return default
     
     def save_data(self):
         """Save data to JSON file"""
@@ -57,6 +74,121 @@ class StepTrackerDB:
     def get_all_usernames(self):
         """Get list of all usernames"""
         return list(self.data["users"].keys())
+
+    def get_challenge(self) -> Dict:
+        """Get current challenge settings"""
+        c = self.data.get("challenge", {
+            "active": False,
+            "team_goal": 0,
+            "start_date": None,
+            "end_date": None,
+            "target_end_date": None
+        })
+        if "target_end_date" not in c:
+            c["target_end_date"] = None
+        return c
+
+    def set_challenge(self, team_goal: int, start_date: str, target_end_date: str = None):
+        """Start a new challenge with team goal, start date, and optional target end date"""
+        self.data["challenge"] = {
+            "active": True,
+            "team_goal": team_goal,
+            "start_date": start_date,
+            "end_date": None,
+            "target_end_date": target_end_date
+        }
+        self.save_data()
+
+    def end_challenge(self, end_date: str):
+        """End the challenge (data stays; challenge marked inactive)"""
+        c = self.data["challenge"]
+        c["active"] = False
+        c["end_date"] = end_date
+        self.save_data()
+
+    def get_team_steps_in_challenge(self) -> int:
+        """Sum all team steps from challenge start to end (or today)."""
+        c = self.get_challenge()
+        start = c.get("start_date")
+        end = c.get("end_date") or date.today().isoformat()
+        if not start:
+            return 0
+        start_d = date.fromisoformat(start)
+        end_d = date.fromisoformat(end)
+        total = 0
+        for username in self.get_all_usernames():
+            user_data = self.get_user_data(username)
+            for log_date_str, steps in user_data.get("history", {}).items():
+                try:
+                    d = date.fromisoformat(log_date_str)
+                    if start_d <= d <= end_d:
+                        total += steps
+                except ValueError:
+                    pass
+        return total
+
+    def get_admin_message(self) -> str:
+        """Get the admin announcement message"""
+        return self.data.get("admin_message", "")
+
+    def set_admin_message(self, text: str):
+        """Set the admin announcement message"""
+        self.data["admin_message"] = (text or "").strip()
+        self.save_data()
+
+    def get_weekly_goal(self) -> Dict:
+        """Get current weekly team goal (goal number and week it applies to)."""
+        return self.data.get("weekly_goal", {"goal": 0, "week_start": None})
+
+    def set_weekly_goal(self, goal: int):
+        """Set team goal for the current week (week = Monday–Sunday)."""
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday())  # Monday
+        self.data["weekly_goal"] = {"goal": goal, "week_start": week_start.isoformat()}
+        self.save_data()
+
+    def get_team_steps_this_week(self) -> int:
+        """Sum all team steps from Monday of current week through today."""
+        today = date.today()
+        week_start = today - timedelta(days=today.weekday())
+        total = 0
+        for username in self.get_all_usernames():
+            user_data = self.get_user_data(username)
+            for log_date_str, steps in user_data.get("history", {}).items():
+                try:
+                    d = date.fromisoformat(log_date_str)
+                    if week_start <= d <= today:
+                        total += steps
+                except ValueError:
+                    pass
+        return total
+
+    def get_all_steps_for_export(self):
+        """Return list of all step entries for CSV/table: [{date, user, steps, daily_goal}, ...]"""
+        rows = []
+        for username in self.get_all_usernames():
+            user_data = self.get_user_data(username)
+            goal = user_data.get("daily_goal", 10000)
+            for log_date_str, steps in user_data.get("history", {}).items():
+                rows.append({
+                    "Date": log_date_str,
+                    "User": username,
+                    "Steps": steps,
+                    "Daily Goal": goal
+                })
+        return sorted(rows, key=lambda r: (r["Date"], r["User"]))
+
+    def load_from_backup(self, data_dict: Dict):
+        """Replace all data with backup (e.g. from uploaded JSON). Keeps data until you delete it."""
+        if "users" in data_dict:
+            self.data["users"] = data_dict["users"]
+        if "challenge" in data_dict:
+            self.data["challenge"] = data_dict["challenge"]
+        if "weekly_goal" in data_dict:
+            self.data["weekly_goal"] = data_dict["weekly_goal"]
+        if "admin_message" in data_dict:
+            self.data["admin_message"] = data_dict["admin_message"]
+        self.save_data()
 
 
 def init_session_state():
@@ -411,8 +543,48 @@ def main_app():
         st.markdown("---")
         st.markdown("### 🔧 Admin Panel")
         
+        with st.expander("💾 Backup & Restore", expanded=True):
+            st.caption("Data is stored in the app until you delete it. Download a backup to keep a copy (e.g. save to Google Drive or your computer).")
+            st.markdown("**Download backup** (full data, JSON — save this file to keep your data safe)")
+            backup_json = json.dumps(db.data, indent=2)
+            st.download_button(
+                "⬇️ Download backup (JSON)",
+                data=backup_json,
+                file_name=f"step_tracker_backup_{date.today().isoformat()}.json",
+                mime="application/json",
+                key="download_backup"
+            )
+            st.markdown("---")
+            st.markdown("**Restore from backup**")
+            uploaded = st.file_uploader("Upload a backup JSON file", type=["json"], key="restore_upload")
+            if uploaded:
+                try:
+                    restored = json.load(uploaded)
+                    if "users" in restored:
+                        if st.button("Restore this backup (replaces current data)", key="restore_btn"):
+                            db.load_from_backup(restored)
+                            st.success("Data restored. Refreshing...")
+                            st.rerun()
+                    else:
+                        st.error("Invalid backup file: missing 'users'.")
+                except json.JSONDecodeError as e:
+                    st.error(f"Invalid JSON: {e}")
+        
         with st.expander("⚠️ Manage Users"):
             all_users = db.get_all_usernames()
+            
+            # Add team member (name only)
+            st.markdown("#### Add Team Member")
+            new_member_name = st.text_input("Enter name to add to the team:", key="new_member_name", placeholder="e.g. Jordan")
+            if st.button("➕ Add Member", key="add_member_btn"):
+                name = (new_member_name or "").strip()
+                if name:
+                    db.get_user_data(name)  # creates user with default goal
+                    st.success(f"✅ Added {name} to the team.")
+                    st.rerun()
+                else:
+                    st.error("Please enter a name.")
+            st.markdown("---")
             
             if all_users:
                 st.markdown(f"**Total Users:** {len(all_users)}")
@@ -448,15 +620,108 @@ def main_app():
                         st.error("Please type 'DELETE ALL' to confirm")
             else:
                 st.info("No users to manage")
+        
+        with st.expander("📢 Announcement"):
+            msg = st.text_area(
+                "Message for the team (shown at top of app):",
+                value=db.get_admin_message(),
+                height=100,
+                placeholder="e.g. Great work this week! Let's aim for 120% of our goal.",
+                key="admin_message_input"
+            )
+            if st.button("Save announcement", key="save_announcement"):
+                db.set_admin_message(msg)
+                st.success("Announcement saved.")
+                st.rerun()
+        
+        with st.expander("🎯 Team Challenge"):
+            c = db.get_challenge()
+            if c["active"]:
+                st.success("**Challenge is active**")
+                st.markdown(f"**Team goal:** {c['team_goal']:,} steps")
+                st.markdown(f"**Started:** {c['start_date']}")
+                steps_in = db.get_team_steps_in_challenge()
+                pct = (steps_in / c["team_goal"] * 100) if c["team_goal"] else 0
+                st.markdown(f"**Progress:** {steps_in:,} / {c['team_goal']:,} ({pct:.1f}%)")
+                if st.button("🏁 End Challenge", key="end_challenge"):
+                    db.end_challenge(date.today().isoformat())
+                    st.success("Challenge ended. All step data is kept.")
+                    st.rerun()
+            else:
+                st.info("No active challenge. Set a team goal and start one.")
+                team_goal = st.number_input(
+                    "Team goal (total steps)",
+                    min_value=10000,
+                    max_value=100_000_000,
+                    value=500000,
+                    step=10000,
+                    key="team_goal_input"
+                )
+                start_date = st.date_input("Challenge start date", value=date.today(), key="challenge_start")
+                target_end = st.date_input("Target end date (optional)", value=None, key="challenge_target_end")
+                if st.button("▶️ Start Challenge", key="start_challenge"):
+                    db.set_challenge(
+                        team_goal,
+                        start_date.isoformat(),
+                        target_end.isoformat() if target_end else None
+                    )
+                    st.success(f"Challenge started! Goal: {team_goal:,} steps.")
+                    st.rerun()
+        
+        with st.expander("📅 Weekly Team Goal"):
+            wg = db.get_weekly_goal()
+            today = date.today()
+            week_start = today - timedelta(days=today.weekday())
+            week_end = week_start + timedelta(days=6)
+            st.caption(f"This week: {week_start} → {week_end}")
+            current_goal = wg.get("goal") or 0
+            weekly_goal_value = st.number_input(
+                "Team steps goal for this week",
+                min_value=0,
+                max_value=10_000_000,
+                value=current_goal if current_goal else 100000,
+                step=5000,
+                key="weekly_goal_input"
+            )
+            if st.button("✅ Set Weekly Goal", key="set_weekly_goal"):
+                db.set_weekly_goal(weekly_goal_value)
+                st.success(f"Weekly goal set to {weekly_goal_value:,} steps.")
+                st.rerun()
+            if current_goal:
+                steps_this_week = db.get_team_steps_this_week()
+                pct = (steps_this_week / current_goal * 100) if current_goal else 0
+                st.metric("Steps this week", f"{steps_this_week:,}")
+                st.progress(min(pct / 100, 1.0))
+                st.caption(f"{pct:.1f}% of weekly goal")
     
     # Main content
     st.title("👟 Team Step Tracker")
     
+    msg = db.get_admin_message()
+    if msg:
+        st.info(f"📢 **Announcement:** {msg}")
+    
     # Tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Log Steps", "📈 My Progress", "🏆 Team Leaderboard", "📊 Team Dashboard"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📝 Log Steps", "📈 My Progress", "🏆 Team Leaderboard", "📊 Team Dashboard", "📥 Export Data"])
     
     with tab1:
-        st.markdown("### Log Your Steps")
+        st.markdown("### Log Steps")
+        
+        # Who are we logging for?
+        all_members = db.get_all_usernames()
+        log_for_options = ["Myself (" + username + ")"] + sorted([m for m in all_members if m != username])
+        log_for_options.append("Add new person (enter name below)")
+        
+        log_for_choice = st.selectbox(
+            "Log steps for:",
+            options=log_for_options,
+            key="log_for_select"
+        )
+        
+        if log_for_choice == "Add new person (enter name below)":
+            log_for_name = st.text_input("Enter their name:", key="log_for_new_name", placeholder="e.g. Sam")
+        else:
+            log_for_name = username if log_for_choice.startswith("Myself") else log_for_choice
         
         col1, col2 = st.columns(2)
         
@@ -464,24 +729,30 @@ def main_app():
             log_date = st.date_input(
                 "Date",
                 value=date.today(),
-                max_value=date.today()
+                max_value=date.today(),
+                key="log_date_input"
             )
         
         with col2:
-            today = date.today().isoformat()
-            current_steps = user_data["history"].get(log_date.isoformat(), 0)
+            target_user_data = db.get_user_data(log_for_name) if (log_for_name and log_for_name.strip()) else None
+            current_steps = target_user_data["history"].get(log_date.isoformat(), 0) if target_user_data else 0
             steps = st.number_input(
                 "Step Count",
                 min_value=0,
                 max_value=100000,
                 value=current_steps,
-                step=100
+                step=100,
+                key="steps_input"
             )
         
-        if st.button("💾 Save Steps", use_container_width=True, type="primary"):
-            db.log_steps(username, steps, log_date.isoformat())
-            st.success(f"✅ Logged {steps:,} steps for {log_date}")
-            st.rerun()
+        if st.button("💾 Save Steps", use_container_width=True, type="primary", key="save_steps_btn"):
+            who = (log_for_name or "").strip()
+            if not who:
+                st.error("Please choose who to log for or enter a name.")
+            else:
+                db.log_steps(who, steps, log_date.isoformat())
+                st.success(f"✅ Logged {steps:,} steps for **{who}** on {log_date}")
+                st.rerun()
         
         # Today's progress
         st.markdown("---")
@@ -585,6 +856,81 @@ def main_app():
     
     with tab4:
         st.markdown("### 📊 Team Dashboard - Overall View")
+        
+        msg = db.get_admin_message()
+        if msg:
+            st.info(f"📢 **Announcement:** {msg}")
+        
+        # Weekly team goal (if set)
+        wg = db.get_weekly_goal()
+        if wg.get("goal"):
+            today = date.today()
+            week_start = today - timedelta(days=today.weekday())
+            week_end = week_start + timedelta(days=6)
+            steps_this_week = db.get_team_steps_this_week()
+            goal = wg["goal"]
+            pct = min((steps_this_week / goal * 100), 100) if goal else 0
+            st.markdown("#### 📅 This Week's Goal")
+            st.caption(f"Week: {week_start} – {week_end}")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Weekly goal", f"{goal:,} steps")
+            with col2:
+                st.metric("Steps this week", f"{steps_this_week:,}")
+            with col3:
+                st.metric("Progress", f"{pct:.1f}%")
+            st.progress(pct / 100)
+            st.markdown("---")
+        
+        # Team Challenge progress (if challenge exists)
+        c = db.get_challenge()
+        if c.get("team_goal") and c.get("start_date"):
+            steps_in_challenge = db.get_team_steps_in_challenge()
+            goal = c["team_goal"]
+            pct = min((steps_in_challenge / goal * 100), 100) if goal else 0
+            end_display = c.get("end_date") or date.today().isoformat()
+            period_label = f"Challenge period: {c['start_date']} → {end_display}"
+            st.markdown("#### 🎯 Team Challenge Progress")
+            st.caption(period_label)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Team Goal", f"{goal:,} steps")
+            with col2:
+                st.metric("Steps in challenge", f"{steps_in_challenge:,}")
+            with col3:
+                st.metric("Progress", f"{pct:.1f}%")
+            st.progress(pct / 100)
+            # Days left + pace (only when challenge is still active)
+            if c.get("active"):
+                today = date.today()
+                start_d = date.fromisoformat(c["start_date"])
+                target_end = c.get("target_end_date")
+                if target_end:
+                    try:
+                        end_d = date.fromisoformat(target_end)
+                        if end_d >= today:
+                            days_left = (end_d - today).days
+                            steps_needed = max(0, goal - steps_in_challenge)
+                            steps_per_day = (steps_needed / days_left) if days_left else 0
+                            st.markdown("**⏱️ Days left & pace**")
+                            st.write(f"**{days_left}** days left. Need **{steps_per_day:,.0f}** steps/day to reach the goal.")
+                        else:
+                            st.caption("Target end date has passed. End the challenge when ready.")
+                    except (ValueError, TypeError):
+                        pass
+                else:
+                    days_in = (today - start_d).days or 1
+                    avg_per_day = steps_in_challenge / days_in
+                    steps_remaining = max(0, goal - steps_in_challenge)
+                    if avg_per_day > 0 and steps_remaining > 0:
+                        days_to_goal = int(steps_remaining / avg_per_day)
+                        st.markdown("**⏱️ Pace**")
+                        st.write(f"**{days_in}** days in. Averaging **{avg_per_day:,.0f}** steps/day. At this pace, goal in **~{days_to_goal}** days.")
+                    else:
+                        st.write(f"**{days_in}** days in. Keep logging steps!")
+            if c.get("end_date"):
+                st.caption(f"✅ Challenge ended on {c['end_date']}. All steps are kept for the record.")
+            st.markdown("---")
         
         stats = get_team_statistics(db)
         
@@ -771,6 +1117,28 @@ def main_app():
             2. Enter their name
             3. Start tracking!
             """)
+    
+    with tab5:
+        st.markdown("### 📥 Export & View All Data")
+        st.markdown("""
+        **Storage:** Data is stored in the app until you delete it.  
+        **Download:** Use the buttons below to save a copy to your computer or Google Drive.  
+        **Restore:** If the app ever resets, go to Admin → Backup & Restore and upload a backup file.
+        """)
+        rows = db.get_all_steps_for_export()
+        if rows:
+            df = pd.DataFrame(rows)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            csv = df.to_csv(index=False)
+            st.download_button(
+                "⬇️ Download as CSV",
+                data=csv,
+                file_name=f"team_steps_export_{date.today().isoformat()}.csv",
+                mime="text/csv",
+                key="download_csv"
+            )
+        else:
+            st.info("No step data yet. Entries will appear here as the team logs steps.")
 
 
 def main():
@@ -803,3 +1171,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
